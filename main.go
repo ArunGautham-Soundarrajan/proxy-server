@@ -92,6 +92,7 @@ func constructResponse(w http.ResponseWriter, resp *http.Response) {
 
 	// Write status code and stream the body.
 	w.WriteHeader(resp.StatusCode)
+	defer resp.Body.Close()
 	io.Copy(w, resp.Body)
 }
 
