@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -53,11 +54,23 @@ func forwardRequest(r *http.Request) http.Response {
 	return *resp
 }
 
+func constructResponse(w http.ResponseWriter, resp *http.Response) {
+
+	for header, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(header, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
 func proxy(w http.ResponseWriter, r *http.Request) {
 
 	logger.Info("Incoming Request", "url", r.URL.String())
 	resp := forwardRequest(r)
-	resp.Write(w)
+	constructResponse(w, &resp)
+	logger.Info("Response Sent", "url", r.URL.String())
 
 }
 
@@ -68,5 +81,4 @@ func main() {
 	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	logger.Info("Proxy Server is listening at port 8080")
 	http.ListenAndServe(":8080", nil)
-
 }
