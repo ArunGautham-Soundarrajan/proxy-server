@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 )
 
 // constructHeaders copies headers from the source header map `src` to the
@@ -52,7 +53,11 @@ func forwardRequest(r *http.Request) http.Response {
 	req, err := http.NewRequest(r.Method, url, r.Body)
 
 	if err != nil {
-		logger.Error("Error Constructing Req", "error", err.Error())
+		logger.Error("Error Constructing Req",
+			"method", r.Method,
+			"url", r.URL.String(),
+			"error", err.Error(),
+		)
 		return http.Response{StatusCode: http.StatusInternalServerError, Request: r}
 	}
 
@@ -63,7 +68,11 @@ func forwardRequest(r *http.Request) http.Response {
 	// Perform the request to the upstream server
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("Error Making Req", "error", err.Error())
+		logger.Error("Error Making Req",
+			"method", r.Method,
+			"url", r.URL.String(),
+			"error", err.Error(),
+		)
 		return http.Response{StatusCode: http.StatusInternalServerError, Request: r}
 	}
 	return *resp
@@ -91,10 +100,23 @@ func constructResponse(w http.ResponseWriter, resp *http.Response) {
 // upstream response back to the client with `constructResponse`.
 func proxy(w http.ResponseWriter, r *http.Request) {
 
-	logger.Info("Incoming Request", "url", r.URL.String())
+	logger.Info("Incoming Request",
+		"url", r.URL.String(),
+		"method", r.Method,
+		"remote_addr", r.RemoteAddr,
+		"user_agent", r.UserAgent(),
+	)
+	startTime := time.Now()
+
 	resp := forwardRequest(r)
 	constructResponse(w, &resp)
-	logger.Info("Response Sent", "url", r.URL.String())
+
+	duration := time.Since(startTime)
+	logger.Info("Response Sent",
+		"url", r.URL.String(),
+		"status", resp.StatusCode,
+		"duration_ms", duration.Milliseconds(),
+	)
 
 }
 
