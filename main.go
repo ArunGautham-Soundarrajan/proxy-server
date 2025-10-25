@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 )
 
 func constructHeaders(dst *http.Request, src http.Header) error {
@@ -23,7 +24,6 @@ func constructHeaders(dst *http.Request, src http.Header) error {
 				dst.Header.Add(key, value)
 			}
 		}
-
 	}
 
 	return nil
@@ -36,18 +36,18 @@ func forwardRequest(r *http.Request) http.Response {
 	req, err := http.NewRequest(r.Method, url, r.Body)
 
 	if err != nil {
-		fmt.Print(err.Error())
+		logger.Error("Error Constructing Req", "error", err.Error())
 		return http.Response{StatusCode: http.StatusInternalServerError, Request: r}
 	}
 
 	err = constructHeaders(req, r.Header)
 	if err != nil {
-		fmt.Print(err.Error())
+		logger.Error("Error Constructing Headers", "error", err.Error())
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Print(err.Error())
+		logger.Error("Error Making Req", "error", err.Error())
 		return http.Response{StatusCode: http.StatusInternalServerError, Request: r}
 	}
 	return *resp
@@ -55,12 +55,18 @@ func forwardRequest(r *http.Request) http.Response {
 
 func proxy(w http.ResponseWriter, r *http.Request) {
 
+	logger.Info("Incoming Request", "url", r.URL.String())
 	resp := forwardRequest(r)
 	resp.Write(w)
 
 }
 
+var logger *slog.Logger
+
 func main() {
 	http.HandleFunc("/", proxy)
+	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger.Info("Proxy Server is listening at port 8080")
 	http.ListenAndServe(":8080", nil)
+
 }
