@@ -31,6 +31,7 @@ curl -x localhost:8080 http://example.com
 
 ## Todo
 
-- [ ] Log duration and other metadata
-- [ ] Implement caching
+- [x] Log duration and other metadata
+- [x] Implement caching
+- [ ] Way to handle indefinitely growing cache
 - [ ] Implement support for https
