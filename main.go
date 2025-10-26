@@ -1,12 +1,77 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
+
+// cacheResponse represents a cached HTTP response including status code,
+// headers, body, and the time it was cached.
+type cacheResponse struct {
+	statusCode int
+	header     http.Header
+	body       []byte
+	cachedAt   time.Time
+}
+
+// cache is a simple in-memory map to store cached responses, protected by
+// a mutex for concurrent access.
+var cache = make(map[string]cacheResponse)
+var cacheMutex sync.RWMutex
+var cacheTTL = time.Minute * 5
+
+// Check if the key exists in cache and return the caches response
+// If the cache exceed the cache Time to Live, delete the cache and return false
+func getCachedResponse(key string) (cacheResponse, bool) {
+	cacheMutex.RLock()
+	resp, found := cache[key]
+	cacheMutex.RUnlock()
+
+	if found && time.Since(resp.cachedAt) >= cacheTTL {
+		cacheMutex.Lock()
+		delete(cache, key)
+		cacheMutex.Unlock()
+		found = false
+	}
+	return resp, found
+}
+
+// Function to serve the response if it exists in cache
+// Construct headers, write status code and body to response
+func serveCachedResponse(w http.ResponseWriter, cr cacheResponse) {
+
+	for header, values := range cr.header {
+		for _, value := range values {
+			w.Header().Add(header, value)
+		}
+	}
+	w.WriteHeader(cr.statusCode)
+	w.Write(cr.body)
+
+}
+
+// Function to set the response to cache
+func setCachedResponse(key string, resp http.Response) {
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	cacheMutex.Lock()
+	cache[key] = cacheResponse{
+		statusCode: resp.StatusCode,
+		header:     resp.Header.Clone(),
+		body:       bodyBytes,
+		cachedAt:   time.Now(),
+	}
+	cacheMutex.Unlock()
+
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+}
 
 // constructHeaders copies headers from the source header map `src` to the
 // destination request `dst`, skipping hop-by-hop headers that must not be
@@ -109,16 +174,38 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	)
 	startTime := time.Now()
 
-	resp := forwardRequest(r)
-	constructResponse(w, &resp)
+	// Construct key for the cache
+	// KEY: `GET:http://example.com/`
+	key := r.Method + ":" + r.URL.String()
 
+	// Check if the key exists in cache and can be served
+	if cachedResp, found := getCachedResponse(key); found {
+		// Serve from cache
+		logger.Info("Serving from Cache",
+			"url", r.URL.String(),
+			"status", cachedResp.statusCode,
+		)
+		serveCachedResponse(w, cachedResp)
+
+	} else {
+
+		resp := forwardRequest(r)
+
+		// Set the cache if the method is GET and status is ok
+		if r.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
+			logger.Info("Cache Miss",
+				"url", r.URL.String(),
+				"method", r.Method,
+			)
+			setCachedResponse(key, resp)
+		}
+		constructResponse(w, &resp)
+	}
 	duration := time.Since(startTime)
 	logger.Info("Response Sent",
 		"url", r.URL.String(),
-		"status", resp.StatusCode,
 		"duration_ms", duration.Milliseconds(),
 	)
-
 }
 
 // logger is a package-level logger used by handlers. It is initialized in
