@@ -2,48 +2,26 @@ package main
 
 import (
 	"bytes"
+	"container/list"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 )
 
-// cacheResponse represents a cached HTTP response including status code,
-// headers, body, and the time it was cached.
-type cacheResponse struct {
-	statusCode int
-	header     http.Header
-	body       []byte
-	cachedAt   time.Time
-}
-
 // cache is a simple in-memory map to store cached responses, protected by
 // a mutex for concurrent access.
-var cache = make(map[string]cacheResponse)
-var cacheMutex sync.RWMutex
+var cache *LRUcache
 var cacheTTL = time.Minute * 5
 
-// Check if the key exists in cache and return the caches response
-// If the cache exceed the cache Time to Live, delete the cache and return false
-func getCachedResponse(key string) (cacheResponse, bool) {
-	cacheMutex.RLock()
-	resp, found := cache[key]
-	cacheMutex.RUnlock()
-
-	if found && time.Since(resp.cachedAt) >= cacheTTL {
-		cacheMutex.Lock()
-		delete(cache, key)
-		cacheMutex.Unlock()
-		found = false
-	}
-	return resp, found
-}
+// logger is a package-level logger used by handlers. It is initialized in
+// main() to write human-readable text to stdout.
+var logger *slog.Logger
 
 // Function to serve the response if it exists in cache
 // Construct headers, write status code and body to response
-func serveCachedResponse(w http.ResponseWriter, cr cacheResponse) {
+func serveCachedResponse(w http.ResponseWriter, cr *cacheResponse) {
 
 	for header, values := range cr.header {
 		for _, value := range values {
@@ -56,19 +34,20 @@ func serveCachedResponse(w http.ResponseWriter, cr cacheResponse) {
 }
 
 // Function to set the response to cache
-func setCachedResponse(key string, resp http.Response) {
+func setCachedResponse(key string, resp *http.Response) {
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 
-	cacheMutex.Lock()
-	cache[key] = cacheResponse{
+	cachedResp := cacheResponse{
+		key:        key,
 		statusCode: resp.StatusCode,
 		header:     resp.Header.Clone(),
 		body:       bodyBytes,
 		cachedAt:   time.Now(),
 	}
-	cacheMutex.Unlock()
+
+	cache.put(key, cachedResp)
 
 	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 }
@@ -179,7 +158,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	key := r.Method + ":" + r.URL.String()
 
 	// Check if the key exists in cache and can be served
-	if cachedResp, found := getCachedResponse(key); found {
+	if cachedResp, found := cache.get(key); found {
 		// Serve from cache
 		logger.Info("Serving from Cache",
 			"url", r.URL.String(),
@@ -197,7 +176,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 				"url", r.URL.String(),
 				"method", r.Method,
 			)
-			setCachedResponse(key, resp)
+			setCachedResponse(key, &resp)
 		}
 		constructResponse(w, &resp)
 	}
@@ -208,11 +187,15 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-// logger is a package-level logger used by handlers. It is initialized in
-// main() to write human-readable text to stdout.
-var logger *slog.Logger
-
+func NewLRUCache(capacity int) *LRUcache {
+	return &LRUcache{
+		cache:      make(map[string]*list.Element),
+		linkedlist: list.New(),
+		capacity:   capacity,
+	}
+}
 func main() {
+	cache = NewLRUCache(100)
 	http.HandleFunc("/", proxy)
 	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	logger.Info("Proxy Server is listening at port 8080")
