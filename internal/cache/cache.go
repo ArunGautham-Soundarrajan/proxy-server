@@ -24,6 +24,7 @@ type LRUcache struct {
 	cache      map[string]*list.Element
 	linkedlist *list.List
 	capacity   int
+	ttl        time.Duration
 	mu         sync.Mutex
 }
 
@@ -34,6 +35,12 @@ func (c *LRUcache) Get(k string) (*cacheResponse, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if elem, ok := c.cache[k]; ok {
+
+		if time.Since(elem.Value.(*cacheResponse).CachedAt) >= c.ttl {
+			c.linkedlist.Remove(elem)
+			delete(c.cache, elem.Value.(*cacheResponse).Key)
+			return nil, false
+		}
 
 		// if the key exists, move the element to the front
 		c.linkedlist.MoveToFront(elem)
@@ -74,10 +81,11 @@ func (c *LRUcache) Put(k string, resp *http.Response) error {
 
 }
 
-func NewLRUCache(capacity int) *LRUcache {
+func NewLRUCache(capacity int, ttl time.Duration) *LRUcache {
 	return &LRUcache{
 		cache:      make(map[string]*list.Element),
 		linkedlist: list.New(),
 		capacity:   capacity,
+		ttl:        ttl,
 	}
 }
