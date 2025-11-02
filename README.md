@@ -29,6 +29,15 @@ Test with curl:
 curl -x localhost:8080 http://example.com
 ```
 
+output
+
+```shell
+2025/11/02 21:50:19 GET:http://example.com/ Processing req
+2025/11/02 21:50:19 GET:http://example.com/ Time Taken: 395.27 ms
+2025/11/02 21:50:29 GET:http://example.com/ Processing req
+2025/11/02 21:50:29 GET:http://example.com/ Time Taken: 0.16 ms
+```
+
 ## Todo
 
 - [x] Log duration and other metadata

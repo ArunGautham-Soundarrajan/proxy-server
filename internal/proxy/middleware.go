@@ -18,6 +18,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 
 		dur := time.Since(start)
-		log.Printf("%s Time Taken: %dµs", url, dur.Microseconds())
+		log.Printf("%s Time Taken: %.2f ms", url, float64(dur.Microseconds())/1000)
 	})
 }
