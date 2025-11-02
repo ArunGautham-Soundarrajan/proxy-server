@@ -44,4 +44,4 @@ output
 - [x] Implement caching
 - [x] Way to handle indefinitely growing cache
 - [ ] Implement support for https
-- [ ] Implement TTL with the new cache
+- [x] Implement TTL with the new cache
