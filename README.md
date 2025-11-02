@@ -1,6 +1,6 @@
 # Simple HTTP Proxy in Go
 
-A lightweight HTTP proxy server written in Go. Forwards requests, copies headers, streams responses, and logs activity using `slog`.
+A lightweight HTTP proxy server written in Go. Forwards requests, copies headers, streams responses, and logs activity using `log`.
 
 ---
 
@@ -18,7 +18,7 @@ A lightweight HTTP proxy server written in Go. Forwards requests, copies headers
 Run the server:
 
 ```bash
-go run main.go
+go run cmd/proxy/main.go
 ```
 
 Default port: 8080
