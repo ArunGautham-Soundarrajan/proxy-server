@@ -1,8 +1,9 @@
-package main
+package cache
 
 import (
 	"container/list"
 	"net/http"
+	"net/http/httputil"
 	"sync"
 	"time"
 )
@@ -10,11 +11,9 @@ import (
 // cacheResponse represents a cached HTTP response including status code,
 // headers, body, and the time it was cached.
 type cacheResponse struct {
-	key        string
-	statusCode int
-	header     http.Header
-	body       []byte
-	cachedAt   time.Time
+	Key      string
+	Response []byte
+	CachedAt time.Time
 }
 
 // LRU cache stores the map of cache [key]:[cacheResponse](pointer to list.Element)
@@ -30,7 +29,7 @@ type LRUcache struct {
 
 // Get functions gets the k which is the `GET:http://example.com/`
 // If the key exists, will return the cached response
-func (c *LRUcache) get(k string) (*cacheResponse, bool) {
+func (c *LRUcache) Get(k string) (*cacheResponse, bool) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -45,12 +44,22 @@ func (c *LRUcache) get(k string) (*cacheResponse, bool) {
 
 // Add an item to the cache if it doesn't exist already
 // Get the key for the cache and the response to store
-func (c *LRUcache) put(k string, resp cacheResponse) {
+func (c *LRUcache) Put(k string, resp *http.Response) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	dump, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		return err
+	}
+
 	// Push the stored element to most recently used
-	elem := c.linkedlist.PushFront(&resp)
+	elem := c.linkedlist.PushFront(&cacheResponse{
+		Key:      k,
+		Response: dump,
+		CachedAt: time.Now(),
+	})
 	c.cache[k] = elem
 
 	// Remove the tail if more than capacity after adding
@@ -58,7 +67,17 @@ func (c *LRUcache) put(k string, resp cacheResponse) {
 	if c.linkedlist.Len() > c.capacity {
 		tail := c.linkedlist.Back()
 		c.linkedlist.Remove(tail)
-		delete(c.cache, tail.Value.(*cacheResponse).key)
+		delete(c.cache, tail.Value.(*cacheResponse).Key)
 	}
 
+	return nil
+
+}
+
+func NewLRUCache(capacity int) *LRUcache {
+	return &LRUcache{
+		cache:      make(map[string]*list.Element),
+		linkedlist: list.New(),
+		capacity:   capacity,
+	}
 }
